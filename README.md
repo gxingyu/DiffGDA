@@ -41,6 +41,69 @@ This code requires the following:
 python train.py --source <source dataset> --target <target dataset> --config <config filename>
 ```
 
+By default, the model uses MMD alignment with dropout 0.2. Important options can be specified
+explicitly:
+
+```bash
+python train.py \
+  --source BRAZIL \
+  --target EUROPE \
+  --config BRAZIL \
+  --alignment mmd \
+  --dropout 0.2 \
+  --lr 0.001 \
+  --eta 0.1 \
+  --alpha 0.1 \
+  --epoch 150 \
+  --diffusion-steps 100
+```
+
+# Hyperparameter Search
+
+`search_diffgda.py` runs the hyperparameter grid
+`lr={0.0001,0.001,0.01}`, `alpha={0.1,0.2,0.3}`, `eta={0.1,0.2,0.3,0.4,0.5}`,
+and `T={20,40,60,80,100}` by default. It records final and best target-domain
+Micro-F1/Macro-F1 values.
+
+Single-GPU search:
+
+```bash
+python search_diffgda.py \
+  --scenarios BRAZIL:EUROPE \
+  --device cuda:0 \
+  --out-dir logs_search/brazil_to_europe \
+  --rounds 1 \
+  --resume-key default
+```
+
+Multi-GPU sharded search:
+
+```bash
+SCENARIOS="BRAZIL:EUROPE" GPUS="0 1 2 3 4 5 6 7" bash scripts/run_search.sh
+```
+
+Run all directed transfers within one domain:
+
+```bash
+DOMAIN=airport GPUS="0 1 2 3 4 5 6 7" bash scripts/run_search.sh
+```
+
+Run all 14 transfer tasks:
+
+```bash
+ALL_SCENARIOS=1 GPUS="0 1 2 3 4 5 6 7" bash scripts/run_search.sh
+```
+
+Use `RESUME_KEY` to separate incompatible search versions:
+
+```bash
+RESUME_KEY=airport_mmd_v1 DOMAIN=airport bash scripts/run_search.sh
+```
+
+After the search finishes, `scripts/run_search.sh` writes `results_all.csv` and
+`summary_best.csv` under the output directory. The summary selects the best
+hyperparameter setting for each scenario by maximizing `Micro-F1 + Macro-F1`.
+
 # Evaluate
 
 The `eval_micro_f1` method from the `pygda` library can easily be used to evaluate the performance of the model.

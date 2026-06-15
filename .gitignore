@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+logs_search/
+logs_train/
+logs_sample/
+*.log

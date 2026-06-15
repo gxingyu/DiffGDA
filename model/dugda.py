@@ -30,9 +30,10 @@ class DUGDA(BaseGDA):
         num_layers=3,
         gnn='gcn',
         mode="node",
-        dropout=0.25,
+        dropout=0.2,
         act=F.relu,
-        adv=True,
+        adv=None,
+        alignment="mmd",
         weight=0.05,
         weight_decay=0.0005,
         lr=0.001,
@@ -65,7 +66,12 @@ class DUGDA(BaseGDA):
             verbose=verbose,
             **kwargs,
         )
-        self.adv = adv
+        if adv is not None:
+            alignment = "adv" if adv else "mmd"
+        if alignment not in {"mmd", "adv"}:
+            raise ValueError("alignment must be either 'mmd' or 'adv'.")
+        self.alignment = alignment
+        self.adv = alignment == "adv"
         self.weight = weight
         self.mode = mode
         self.config = config
@@ -83,6 +89,8 @@ class DUGDA(BaseGDA):
         self.x_forward = nn.Linear(self.in_dim, 100).to(self.device)
         self.x_back = nn.Linear(100, self.in_dim).to(self.device)
         self.seed = 521070
+        self.best_metrics = {"micro_f1": -1.0, "macro_f1": -1.0, "diff_epoch": -1}
+        self.last_metrics = None
     def init_model(self, **kwargs):
 
         return DUGDABase(
@@ -113,8 +121,7 @@ class DUGDA(BaseGDA):
         source_features = self.cls.feat_bottleneck(source_data.x, source_data.edge_index, source_batch, self.s_pnums)
         target_features = self.cls.feat_bottleneck(target_data.x, target_data.edge_index, target_batch, self.t_pnums)
 
-        # Adv loss
-        if self.adv:
+        if self.alignment == "adv":
             source_dlogits = self.cls.domain_classifier(source_features, alpha)
             target_dlogits = self.cls.domain_classifier(target_features, alpha)
             
@@ -125,7 +132,6 @@ class DUGDA(BaseGDA):
             domain_loss = F.cross_entropy(torch.cat([source_dlogits, target_dlogits], 0), domain_label)
             loss = loss + self.weight * domain_loss
         else:
-            # MMD loss
             mmd_loss = MMD(source_features, target_features)
             loss = loss + mmd_loss * self.weight
 
@@ -172,6 +178,8 @@ class DUGDA(BaseGDA):
 
         torch.manual_seed(self.seed)
         subgraph_node_nums=int(source_data.x.shape[0]*self.alpha)
+        if subgraph_node_nums <= 0:
+            subgraph_node_nums = 1
         subgraph_data, re_source_data = get_subgraph(subgraph_node_nums,source_data)
         target_subgraph_data, re_target_data = get_subgraph(subgraph_node_nums,target_data)
         subgraph_loader = NeighborLoader(
@@ -357,6 +365,13 @@ class DUGDA(BaseGDA):
                 preds = logits.argmax(dim=1)
                 mi_f1 = eval_micro_f1(labels, preds)
                 ma_f1 = eval_macro_f1(labels, preds)
+                self.last_metrics = {
+                    "micro_f1": float(mi_f1),
+                    "macro_f1": float(ma_f1),
+                    "diff_epoch": diff_epoch + 1,
+                }
+                if mi_f1 > self.best_metrics["micro_f1"]:
+                    self.best_metrics = dict(self.last_metrics)
                 print("target:  ")
                 print('[epoch] '+ str(diff_epoch + 1) + ' micro-f1: ' + str(mi_f1) + ' macro-f1: ' + str(ma_f1))
 
